@@ -20,8 +20,12 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 add_executable(cache_server
     src/server/main.cpp
     src/server/server.cpp
+    src/server/connection.cpp
+    src/server/event_loop.cpp
     src/protocol/parser.cpp
     src/protocol/response.cpp
+    src/protocol/dispatcher.cpp
+    src/storage/storage.cpp
 )
 
 # CLI client executable
@@ -30,7 +34,23 @@ add_executable(cache_cli
 )
 
 # Platform-specific settings
+# Server requires Linux (epoll), CLI supports both Windows and Linux
 if(WIN32)
-    target_link_libraries(cache_server ws2_32)
     target_link_libraries(cache_cli ws2_32)
 endif()
+
+# Tests
+enable_testing()
+
+add_executable(test_parser
+    tests/test_parser.cpp
+    src/protocol/parser.cpp
+)
+
+add_executable(test_storage
+    tests/test_storage.cpp
+    src/storage/storage.cpp
+)
+
+add_test(NAME parser_tests COMMAND test_parser)
+add_test(NAME storage_tests COMMAND test_storage)

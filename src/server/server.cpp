@@ -1,76 +1,53 @@
 #include "server/server.h"
+#include "server/connection.h"
+#include "server/event_loop.h"
 #include "protocol/parser.h"
-#include "protocol/response.h"
+#include "protocol/dispatcher.h"
+#include "storage/storage.h"
 
 #include <iostream>
 #include <cstring>
 #include <stdexcept>
 
-#ifdef _WIN32
-    #include <ws2tcpip.h>
-    #define CLOSE_SOCKET closesocket
-    #define SOCKET_ERROR_CODE WSAGetLastError()
-#else
-    #include <sys/socket.h>
-    #include <netinet/in.h>
-    #include <unistd.h>
-    #include <arpa/inet.h>
-    constexpr socket_t INVALID_SOCKET = -1;
-    #define CLOSE_SOCKET close
-    #define SOCKET_ERROR_CODE errno
-#endif
+#include <sys/socket.h>
+#include <sys/epoll.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 namespace cacheforge {
 
 namespace {
-    constexpr size_t BUFFER_SIZE = 1024;
-
-#ifdef _WIN32
-    class WinsockInit {
-    public:
-        WinsockInit() {
-            WSADATA wsaData;
-            if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-                throw std::runtime_error("WSAStartup failed");
-            }
+    void setNonBlocking(int fd) {
+        int flags = fcntl(fd, F_GETFL, 0);
+        if (flags < 0) {
+            throw std::runtime_error("fcntl F_GETFL failed");
         }
-        ~WinsockInit() {
-            WSACleanup();
+        if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+            throw std::runtime_error("fcntl F_SETFL failed");
         }
-    };
-
-    // Global Winsock initializer
-    WinsockInit& getWinsockInit() {
-        static WinsockInit init;
-        return init;
     }
-#endif
 }
 
 Server::Server(uint16_t port)
     : port_(port)
-    , server_fd_(INVALID_SOCKET)
+    , server_fd_(-1)
     , running_(false)
+    , storage_(std::make_unique<Storage>())
+    , dispatcher_(std::make_unique<Dispatcher>(*storage_))
+    , event_loop_(std::make_unique<EventLoop>())
 {
-#ifdef _WIN32
-    getWinsockInit();
-#endif
-
     // Create socket
     server_fd_ = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd_ == INVALID_SOCKET) {
-        throw std::runtime_error("Failed to create socket: " + std::to_string(SOCKET_ERROR_CODE));
+    if (server_fd_ < 0) {
+        throw std::runtime_error("Failed to create socket");
     }
 
     // Set SO_REUSEADDR
     int opt = 1;
-#ifdef _WIN32
-    if (setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR,
-                   reinterpret_cast<const char*>(&opt), sizeof(opt)) < 0) {
-#else
     if (setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-#endif
-        CLOSE_SOCKET(server_fd_);
+        close(server_fd_);
         throw std::runtime_error("Failed to set SO_REUSEADDR");
     }
 
@@ -81,21 +58,34 @@ Server::Server(uint16_t port)
     addr.sin_port = htons(port_);
 
     if (bind(server_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
-        CLOSE_SOCKET(server_fd_);
+        close(server_fd_);
         throw std::runtime_error("Failed to bind to port " + std::to_string(port_));
     }
 
-    // Listen
-    if (listen(server_fd_, 1) < 0) {
-        CLOSE_SOCKET(server_fd_);
+    // Listen with larger backlog for concurrent connections
+    if (listen(server_fd_, 128) < 0) {
+        close(server_fd_);
         throw std::runtime_error("Failed to listen on socket");
     }
+
+    // Set server socket to non-blocking
+    setNonBlocking(server_fd_);
+
+    // Add server socket to epoll
+    event_loop_->addFd(server_fd_, EPOLLIN);
 }
 
 Server::~Server() {
     stop();
-    if (server_fd_ != INVALID_SOCKET) {
-        CLOSE_SOCKET(server_fd_);
+
+    // Close all client connections
+    for (auto& [fd, conn] : connections_) {
+        close(fd);
+    }
+    connections_.clear();
+
+    if (server_fd_ >= 0) {
+        close(server_fd_);
     }
 }
 
@@ -104,27 +94,34 @@ void Server::run() {
     std::cout << "Server listening on port " << port_ << "\n";
 
     while (running_) {
-        struct sockaddr_in client_addr{};
-        socklen_t client_len = sizeof(client_addr);
+        auto events = event_loop_->wait(100); // 100ms timeout for responsive shutdown
 
-        socket_t client_fd = accept(server_fd_,
-                                    reinterpret_cast<struct sockaddr*>(&client_addr),
-                                    &client_len);
+        for (const auto& [fd, ev] : events) {
+            if (fd == server_fd_) {
+                // New connection
+                acceptConnection();
+            } else {
+                // Client event
+                if (ev & (EPOLLERR | EPOLLHUP)) {
+                    closeConnection(fd);
+                    continue;
+                }
 
-        if (client_fd == INVALID_SOCKET) {
-            if (running_) {
-                std::cerr << "Accept failed: " << SOCKET_ERROR_CODE << "\n";
+                if (ev & EPOLLIN) {
+                    handleRead(fd);
+                }
+
+                // Check if connection still exists (might have been closed in handleRead)
+                auto it = connections_.find(fd);
+                if (it == connections_.end()) {
+                    continue;
+                }
+
+                if (ev & EPOLLOUT) {
+                    handleWrite(fd);
+                }
             }
-            continue;
         }
-
-        char client_ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
-        std::cout << "Client connected from " << client_ip << "\n";
-
-        handleClient(client_fd);
-
-        std::cout << "Client disconnected\n";
     }
 }
 
@@ -132,36 +129,100 @@ void Server::stop() {
     running_ = false;
 }
 
-void Server::handleClient(socket_t client_fd) {
-    char buffer[BUFFER_SIZE];
+void Server::acceptConnection() {
+    while (true) {
+        struct sockaddr_in client_addr{};
+        socklen_t client_len = sizeof(client_addr);
 
-    while (running_) {
-        std::memset(buffer, 0, BUFFER_SIZE);
+        int client_fd = accept(server_fd_,
+                               reinterpret_cast<struct sockaddr*>(&client_addr),
+                               &client_len);
 
-#ifdef _WIN32
-        int bytes_read = recv(client_fd, buffer, BUFFER_SIZE - 1, 0);
-#else
-        ssize_t bytes_read = recv(client_fd, buffer, BUFFER_SIZE - 1, 0);
-#endif
-
-        if (bytes_read <= 0) {
-            // Client disconnected or error
+        if (client_fd < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // No more pending connections
+                break;
+            }
+            std::cerr << "Accept failed: " << strerror(errno) << "\n";
             break;
         }
 
-        // Parse and respond
-        std::string_view input(buffer, static_cast<size_t>(bytes_read));
-        Command cmd = parseCommand(input);
-        std::string response = formatResponse(cmd);
+        // Set non-blocking
+        setNonBlocking(client_fd);
 
-#ifdef _WIN32
-        send(client_fd, response.c_str(), static_cast<int>(response.size()), 0);
-#else
-        send(client_fd, response.c_str(), response.size(), 0);
-#endif
+        // Create connection and add to epoll
+        connections_[client_fd] = std::make_unique<Connection>(client_fd);
+        event_loop_->addFd(client_fd, EPOLLIN);
+
+        char client_ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
+        std::cout << "Client connected from " << client_ip << " (fd=" << client_fd << ")\n";
+    }
+}
+
+void Server::handleRead(int fd) {
+    auto it = connections_.find(fd);
+    if (it == connections_.end()) {
+        return;
     }
 
-    CLOSE_SOCKET(client_fd);
+    Connection& conn = *it->second;
+    auto commands = conn.readAndParse();
+
+    if (conn.hasError()) {
+        closeConnection(fd);
+        return;
+    }
+
+    // Process each complete command
+    for (const auto& cmd_str : commands) {
+        Command cmd = parseCommand(cmd_str);
+        std::string response = dispatcher_->dispatch(cmd);
+        conn.queueResponse(std::move(response));
+    }
+
+    // Update epoll events if we have data to write
+    updateEpollEvents(fd);
+}
+
+void Server::handleWrite(int fd) {
+    auto it = connections_.find(fd);
+    if (it == connections_.end()) {
+        return;
+    }
+
+    Connection& conn = *it->second;
+    conn.flushWriteBuffer();
+
+    if (conn.hasError()) {
+        closeConnection(fd);
+        return;
+    }
+
+    // Update epoll events
+    updateEpollEvents(fd);
+}
+
+void Server::closeConnection(int fd) {
+    std::cout << "Client disconnected (fd=" << fd << ")\n";
+
+    event_loop_->removeFd(fd);
+    connections_.erase(fd);
+    close(fd);
+}
+
+void Server::updateEpollEvents(int fd) {
+    auto it = connections_.find(fd);
+    if (it == connections_.end()) {
+        return;
+    }
+
+    uint32_t events = EPOLLIN;
+    if (it->second->wantWrite()) {
+        events |= EPOLLOUT;
+    }
+
+    event_loop_->modifyFd(fd, events);
 }
 
 } // namespace cacheforge

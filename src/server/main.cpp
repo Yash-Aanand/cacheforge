@@ -6,9 +6,8 @@
 namespace {
     cacheforge::Server* g_server = nullptr;
 
-    void signalHandler(int signal) {
+    void signalHandler(int /*signal*/) {
         if (g_server) {
-            std::cout << "\nReceived signal " << signal << ", shutting down...\n";
             g_server->stop();
         }
     }

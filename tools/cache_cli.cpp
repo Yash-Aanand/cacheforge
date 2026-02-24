@@ -2,6 +2,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cstdint>
+#include <string>
 
 #ifdef _WIN32
     #include <winsock2.h>
@@ -18,13 +19,12 @@
     #define CLOSE_SOCKET close
 #endif
 
-constexpr size_t BUFFER_SIZE = 1024;
+constexpr size_t BUFFER_SIZE = 4096;
 
 int main(int argc, char* argv[]) {
     const char* host = "127.0.0.1";
     uint16_t port = 6380;
 
-    // Simple argument parsing
     if (argc > 1) {
         port = static_cast<uint16_t>(std::atoi(argv[1]));
     }
@@ -37,7 +37,6 @@ int main(int argc, char* argv[]) {
     }
 #endif
 
-    // Create socket
     socket_t sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == INVALID_SOCKET) {
         std::cerr << "Failed to create socket\n";
@@ -47,11 +46,17 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Connect
     struct sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(port);
-    inet_pton(AF_INET, host, &server_addr.sin_addr);
+    if (inet_pton(AF_INET, host, &server_addr.sin_addr) <= 0) {
+        std::cerr << "Invalid address\n";
+        CLOSE_SOCKET(sock);
+#ifdef _WIN32
+        WSACleanup();
+#endif
+        return 1;
+    }
 
     if (connect(sock, reinterpret_cast<struct sockaddr*>(&server_addr),
                 sizeof(server_addr)) < 0) {
@@ -64,43 +69,43 @@ int main(int argc, char* argv[]) {
     }
 
     std::cout << "Connected to " << host << ":" << port << "\n";
+    std::cout << "Type commands (PING, SET key value, GET key, DEL key). Ctrl+C to exit.\n";
 
-    // Send PING
-    const char* ping_cmd = "PING\n";
-#ifdef _WIN32
-    send(sock, ping_cmd, static_cast<int>(strlen(ping_cmd)), 0);
-#else
-    send(sock, ping_cmd, strlen(ping_cmd), 0);
-#endif
-
-    std::cout << "Sent: PING\n";
-
-    // Receive response
+    std::string line;
     char buffer[BUFFER_SIZE];
-    std::memset(buffer, 0, BUFFER_SIZE);
 
+    while (std::cout << "> " && std::getline(std::cin, line)) {
+        if (line.empty()) continue;
+
+        line += "\n";
 #ifdef _WIN32
-    int bytes_read = recv(sock, buffer, BUFFER_SIZE - 1, 0);
+        send(sock, line.c_str(), static_cast<int>(line.size()), 0);
 #else
-    ssize_t bytes_read = recv(sock, buffer, BUFFER_SIZE - 1, 0);
+        send(sock, line.c_str(), line.size(), 0);
 #endif
 
-    if (bytes_read > 0) {
-        // Trim newline for display
-        std::string response(buffer, static_cast<size_t>(bytes_read));
-        while (!response.empty() && (response.back() == '\n' || response.back() == '\r')) {
-            response.pop_back();
+        std::memset(buffer, 0, BUFFER_SIZE);
+#ifdef _WIN32
+        int bytes_read = recv(sock, buffer, BUFFER_SIZE - 1, 0);
+#else
+        ssize_t bytes_read = recv(sock, buffer, BUFFER_SIZE - 1, 0);
+#endif
+
+        if (bytes_read > 0) {
+            std::string response(buffer, static_cast<size_t>(bytes_read));
+            while (!response.empty() && (response.back() == '\n' || response.back() == '\r')) {
+                response.pop_back();
+            }
+            std::cout << response << "\n";
+        } else {
+            std::cerr << "Connection closed\n";
+            break;
         }
-        std::cout << "Received: " << response << "\n";
-    } else {
-        std::cerr << "Failed to receive response\n";
     }
 
-    // Cleanup
     CLOSE_SOCKET(sock);
 #ifdef _WIN32
     WSACleanup();
 #endif
-
     return 0;
 }

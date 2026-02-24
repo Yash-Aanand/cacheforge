@@ -1,17 +1,18 @@
 #ifndef CACHEFORGE_SERVER_H
 #define CACHEFORGE_SERVER_H
 
+#include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
-
-#ifdef _WIN32
-    #include <winsock2.h>
-    using socket_t = SOCKET;
-#else
-    using socket_t = int;
-#endif
+#include <unordered_map>
 
 namespace cacheforge {
+
+class Storage;
+class Dispatcher;
+class EventLoop;
+class Connection;
 
 class Server {
 public:
@@ -29,11 +30,19 @@ public:
     void stop();
 
 private:
-    void handleClient(socket_t client_fd);
+    void acceptConnection();
+    void handleRead(int fd);
+    void handleWrite(int fd);
+    void closeConnection(int fd);
+    void updateEpollEvents(int fd);
 
     uint16_t port_;
-    socket_t server_fd_;
-    bool running_;
+    int server_fd_;
+    std::atomic<bool> running_;
+    std::unique_ptr<Storage> storage_;
+    std::unique_ptr<Dispatcher> dispatcher_;
+    std::unique_ptr<EventLoop> event_loop_;
+    std::unordered_map<int, std::unique_ptr<Connection>> connections_;
 };
 
 } // namespace cacheforge

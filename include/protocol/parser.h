@@ -3,17 +3,21 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace cacheforge {
 
 enum class CommandType {
     PING,
+    SET,
+    GET,
+    DEL,
     UNKNOWN
 };
 
 struct Command {
     CommandType type;
-    std::string raw;
+    std::vector<std::string> args;
 };
 
 // Parse a command from input buffer
