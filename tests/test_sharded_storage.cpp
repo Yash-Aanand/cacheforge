@@ -33,14 +33,12 @@ void test_del() {
     storage.set("key1", "value1");
     assert(storage.size() == 1);
 
-    bool deleted = storage.del("key1");
-    assert(deleted);
+    assert(storage.del("key1") == true);
     assert(storage.size() == 0);
     assert(!storage.get("key1").has_value());
 
     // Delete nonexistent
-    deleted = storage.del("nonexistent");
-    assert(!deleted);
+    assert(storage.del("nonexistent") == false);
 }
 
 void test_size() {

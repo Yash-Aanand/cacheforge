@@ -55,11 +55,6 @@ add_executable(test_parser
     src/protocol/parser.cpp
 )
 
-add_executable(test_storage
-    tests/test_storage.cpp
-    src/storage/storage.cpp
-)
-
 add_executable(test_sharded_storage
     tests/test_sharded_storage.cpp
     src/storage/sharded_storage.cpp
@@ -70,7 +65,12 @@ add_executable(test_ttl
     src/storage/sharded_storage.cpp
 )
 
+add_executable(test_lru
+    tests/test_lru.cpp
+    src/storage/sharded_storage.cpp
+)
+
 add_test(NAME parser_tests COMMAND test_parser)
-add_test(NAME storage_tests COMMAND test_storage)
 add_test(NAME sharded_storage_tests COMMAND test_sharded_storage)
 add_test(NAME ttl_tests COMMAND test_ttl)
+add_test(NAME lru_tests COMMAND test_lru)
