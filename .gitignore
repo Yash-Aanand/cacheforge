@@ -27,3 +27,7 @@ compile_commands.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Local docs (not tracked)
+PLAN.md
+STATUS.md
