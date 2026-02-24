@@ -15,16 +15,20 @@ namespace {
 
 int main(int argc, char* argv[]) {
     uint16_t port = 6380;
+    size_t num_threads = 0;  // 0 = auto (hardware_concurrency)
 
-    // Simple argument parsing for port
+    // Simple argument parsing: [port] [threads]
     if (argc > 1) {
         port = static_cast<uint16_t>(std::atoi(argv[1]));
+    }
+    if (argc > 2) {
+        num_threads = static_cast<size_t>(std::atoi(argv[2]));
     }
 
     std::cout << "CacheForge server starting on port " << port << "...\n";
 
     try {
-        cacheforge::Server server(port);
+        cacheforge::Server server(port, num_threads);
         g_server = &server;
 
         // Set up signal handlers

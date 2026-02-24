@@ -76,6 +76,40 @@ void test_quoted_strings() {
     assert(cmd.args[1] == "hello world");
 }
 
+void test_expire() {
+    Command cmd = parseCommand("EXPIRE mykey 60");
+    assert(cmd.type == CommandType::EXPIRE);
+    assert(cmd.args.size() == 2);
+    assert(cmd.args[0] == "mykey");
+    assert(cmd.args[1] == "60");
+
+    cmd = parseCommand("expire foo 3600");
+    assert(cmd.type == CommandType::EXPIRE);
+    assert(cmd.args[0] == "foo");
+    assert(cmd.args[1] == "3600");
+
+    // Missing seconds
+    cmd = parseCommand("EXPIRE onlykey");
+    assert(cmd.type == CommandType::EXPIRE);
+    assert(cmd.args.empty());
+}
+
+void test_ttl() {
+    Command cmd = parseCommand("TTL mykey");
+    assert(cmd.type == CommandType::TTL);
+    assert(cmd.args.size() == 1);
+    assert(cmd.args[0] == "mykey");
+
+    cmd = parseCommand("ttl foo");
+    assert(cmd.type == CommandType::TTL);
+    assert(cmd.args[0] == "foo");
+
+    // Missing key
+    cmd = parseCommand("TTL");
+    assert(cmd.type == CommandType::TTL);
+    assert(cmd.args.empty());
+}
+
 int main() {
     test_ping();
     std::cout << "test_ping passed\n";
@@ -94,6 +128,12 @@ int main() {
 
     test_quoted_strings();
     std::cout << "test_quoted_strings passed\n";
+
+    test_expire();
+    std::cout << "test_expire passed\n";
+
+    test_ttl();
+    std::cout << "test_ttl passed\n";
 
     std::cout << "\nAll parser tests passed!\n";
     return 0;

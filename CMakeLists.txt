@@ -13,6 +13,13 @@ endif()
 # Compiler warnings
 add_compile_options(-Wall -Wextra -Wpedantic)
 
+# ThreadSanitizer option
+option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+if(ENABLE_TSAN)
+    add_compile_options(-fsanitize=thread)
+    add_link_options(-fsanitize=thread)
+endif()
+
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
@@ -22,10 +29,11 @@ add_executable(cache_server
     src/server/server.cpp
     src/server/connection.cpp
     src/server/event_loop.cpp
+    src/server/thread_pool.cpp
     src/protocol/parser.cpp
     src/protocol/response.cpp
     src/protocol/dispatcher.cpp
-    src/storage/storage.cpp
+    src/storage/sharded_storage.cpp
 )
 
 # CLI client executable
@@ -52,5 +60,17 @@ add_executable(test_storage
     src/storage/storage.cpp
 )
 
+add_executable(test_sharded_storage
+    tests/test_sharded_storage.cpp
+    src/storage/sharded_storage.cpp
+)
+
+add_executable(test_ttl
+    tests/test_ttl.cpp
+    src/storage/sharded_storage.cpp
+)
+
 add_test(NAME parser_tests COMMAND test_parser)
 add_test(NAME storage_tests COMMAND test_storage)
+add_test(NAME sharded_storage_tests COMMAND test_sharded_storage)
+add_test(NAME ttl_tests COMMAND test_ttl)

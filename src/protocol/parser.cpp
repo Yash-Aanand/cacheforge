@@ -96,6 +96,17 @@ Command parseCommand(std::string_view input) {
         if (tokens.size() >= 2) {
             cmd.args.push_back(tokens[1]);  // key
         }
+    } else if (cmdName == "EXPIRE") {
+        cmd.type = CommandType::EXPIRE;
+        if (tokens.size() >= 3) {
+            cmd.args.push_back(tokens[1]);  // key
+            cmd.args.push_back(tokens[2]);  // seconds
+        }
+    } else if (cmdName == "TTL") {
+        cmd.type = CommandType::TTL;
+        if (tokens.size() >= 2) {
+            cmd.args.push_back(tokens[1]);  // key
+        }
     }
 
     return cmd;

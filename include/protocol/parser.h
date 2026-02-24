@@ -12,6 +12,8 @@ enum class CommandType {
     SET,
     GET,
     DEL,
+    EXPIRE,
+    TTL,
     UNKNOWN
 };
 

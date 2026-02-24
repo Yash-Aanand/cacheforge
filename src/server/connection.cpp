@@ -20,14 +20,14 @@ std::vector<std::string> Connection::readAndParse() {
 
     if (bytes_read < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            has_error_ = true;
+            has_error_.store(true, std::memory_order_release);
         }
         return commands;
     }
 
     if (bytes_read == 0) {
         // EOF - client disconnected
-        has_error_ = true;
+        has_error_.store(true, std::memory_order_release);
         return commands;
     }
 
@@ -53,10 +53,37 @@ std::vector<std::string> Connection::readAndParse() {
 }
 
 void Connection::queueResponse(std::string response) {
+    std::lock_guard<std::mutex> lock(write_mutex_);
     write_buffer_ += std::move(response);
 }
 
+bool Connection::sendResponse(const std::string& response) {
+    // Direct send from worker thread
+    size_t total_sent = 0;
+    while (total_sent < response.size()) {
+        ssize_t bytes_sent = send(fd_, response.data() + total_sent,
+                                   response.size() - total_sent, MSG_NOSIGNAL);
+
+        if (bytes_sent < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // Socket buffer full - queue remaining data for epoll to handle
+                std::lock_guard<std::mutex> lock(write_mutex_);
+                write_buffer_ += response.substr(total_sent);
+                return false;
+            }
+            has_error_.store(true, std::memory_order_release);
+            return false;
+        }
+
+        total_sent += static_cast<size_t>(bytes_sent);
+    }
+
+    return true;
+}
+
 bool Connection::flushWriteBuffer() {
+    std::lock_guard<std::mutex> lock(write_mutex_);
+
     if (write_buffer_.empty()) {
         return true;
     }
@@ -65,13 +92,28 @@ bool Connection::flushWriteBuffer() {
 
     if (bytes_sent < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            has_error_ = true;
+            has_error_.store(true, std::memory_order_release);
         }
         return false;
     }
 
     write_buffer_.erase(0, static_cast<size_t>(bytes_sent));
     return write_buffer_.empty();
+}
+
+bool Connection::wantWrite() const {
+    std::lock_guard<std::mutex> lock(write_mutex_);
+    return !write_buffer_.empty();
+}
+
+bool Connection::trySetInFlight() {
+    bool expected = false;
+    return in_flight_.compare_exchange_strong(expected, true,
+                                               std::memory_order_acq_rel);
+}
+
+void Connection::clearInFlight() {
+    in_flight_.store(false, std::memory_order_release);
 }
 
 } // namespace cacheforge

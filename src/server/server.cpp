@@ -1,9 +1,10 @@
 #include "server/server.h"
 #include "server/connection.h"
 #include "server/event_loop.h"
+#include "server/thread_pool.h"
 #include "protocol/parser.h"
 #include "protocol/dispatcher.h"
-#include "storage/storage.h"
+#include "storage/sharded_storage.h"
 
 #include <iostream>
 #include <cstring>
@@ -30,13 +31,14 @@ namespace {
     }
 }
 
-Server::Server(uint16_t port)
+Server::Server(uint16_t port, size_t num_threads)
     : port_(port)
     , server_fd_(-1)
     , running_(false)
-    , storage_(std::make_unique<Storage>())
+    , storage_(std::make_unique<ShardedStorage>())
     , dispatcher_(std::make_unique<Dispatcher>(*storage_))
     , event_loop_(std::make_unique<EventLoop>())
+    , thread_pool_(std::make_unique<ThreadPool>(num_threads == 0 ? std::thread::hardware_concurrency() : num_threads))
 {
     // Create socket
     server_fd_ = socket(AF_INET, SOCK_STREAM, 0);
@@ -73,15 +75,16 @@ Server::Server(uint16_t port)
 
     // Add server socket to epoll
     event_loop_->addFd(server_fd_, EPOLLIN);
+
+    // Start background expiration sweep
+    storage_->startExpirationSweep();
 }
 
 Server::~Server() {
     stop();
 
-    // Close all client connections
-    for (auto& [fd, conn] : connections_) {
-        close(fd);
-    }
+    // Clear connections before destroying thread pool to ensure all tasks complete
+    // shared_ptr ensures connections survive until tasks finish
     connections_.clear();
 
     if (server_fd_ >= 0) {
@@ -91,7 +94,8 @@ Server::~Server() {
 
 void Server::run() {
     running_ = true;
-    std::cout << "Server listening on port " << port_ << "\n";
+    std::cout << "Server listening on port " << port_
+              << " with " << thread_pool_->size() << " worker threads\n";
 
     while (running_) {
         auto events = event_loop_->wait(100); // 100ms timeout for responsive shutdown
@@ -151,7 +155,7 @@ void Server::acceptConnection() {
         setNonBlocking(client_fd);
 
         // Create connection and add to epoll
-        connections_[client_fd] = std::make_unique<Connection>(client_fd);
+        connections_[client_fd] = std::make_shared<Connection>(client_fd);
         event_loop_->addFd(client_fd, EPOLLIN);
 
         char client_ip[INET_ADDRSTRLEN];
@@ -166,19 +170,47 @@ void Server::handleRead(int fd) {
         return;
     }
 
-    Connection& conn = *it->second;
-    auto commands = conn.readAndParse();
+    auto conn = it->second;  // shared_ptr copy
 
-    if (conn.hasError()) {
+    // Skip if a task is already in-flight for this connection
+    if (conn->isInFlight()) {
+        return;
+    }
+
+    auto commands = conn->readAndParse();
+
+    if (conn->hasError()) {
         closeConnection(fd);
         return;
     }
 
     // Process each complete command
     for (const auto& cmd_str : commands) {
+        // Try to set in-flight flag
+        if (!conn->trySetInFlight()) {
+            // Task already in-flight, this shouldn't happen for first command
+            // but could happen for subsequent commands in same read
+            // Queue the command for later by putting it back... but we can't
+            // easily do that. Instead, process synchronously.
+            Command cmd = parseCommand(cmd_str);
+            std::string response = dispatcher_->dispatch(cmd);
+            conn->queueResponse(std::move(response));
+            continue;
+        }
+
+        // Capture shared_ptr and command for the worker task
         Command cmd = parseCommand(cmd_str);
-        std::string response = dispatcher_->dispatch(cmd);
-        conn.queueResponse(std::move(response));
+        Dispatcher* dispatcher = dispatcher_.get();
+
+        thread_pool_->submit([conn, cmd, dispatcher]() {
+            std::string response = dispatcher->dispatch(cmd);
+            conn->sendResponse(response);
+            conn->clearInFlight();
+        });
+
+        // Only one task at a time per connection
+        // If there are more commands, they'll be processed on next read
+        break;
     }
 
     // Update epoll events if we have data to write
@@ -191,10 +223,10 @@ void Server::handleWrite(int fd) {
         return;
     }
 
-    Connection& conn = *it->second;
-    conn.flushWriteBuffer();
+    auto& conn = it->second;
+    conn->flushWriteBuffer();
 
-    if (conn.hasError()) {
+    if (conn->hasError()) {
         closeConnection(fd);
         return;
     }
@@ -207,7 +239,7 @@ void Server::closeConnection(int fd) {
     std::cout << "Client disconnected (fd=" << fd << ")\n";
 
     event_loop_->removeFd(fd);
-    connections_.erase(fd);
+    connections_.erase(fd);  // shared_ptr may still be held by in-flight task
     close(fd);
 }
 

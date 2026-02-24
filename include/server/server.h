@@ -9,14 +9,15 @@
 
 namespace cacheforge {
 
-class Storage;
+class ShardedStorage;
 class Dispatcher;
 class EventLoop;
 class Connection;
+class ThreadPool;
 
 class Server {
 public:
-    explicit Server(uint16_t port = 6380);
+    explicit Server(uint16_t port = 6380, size_t num_threads = 0);
     ~Server();
 
     // Disable copy
@@ -39,10 +40,13 @@ private:
     uint16_t port_;
     int server_fd_;
     std::atomic<bool> running_;
-    std::unique_ptr<Storage> storage_;
+    std::unique_ptr<ShardedStorage> storage_;
     std::unique_ptr<Dispatcher> dispatcher_;
     std::unique_ptr<EventLoop> event_loop_;
-    std::unordered_map<int, std::unique_ptr<Connection>> connections_;
+    std::unique_ptr<ThreadPool> thread_pool_;
+
+    // Use shared_ptr for connections to allow safe capture in worker tasks
+    std::unordered_map<int, std::shared_ptr<Connection>> connections_;
 };
 
 } // namespace cacheforge
