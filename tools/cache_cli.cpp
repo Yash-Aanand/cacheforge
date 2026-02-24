@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstring>
 #include <cstdlib>
+#include <cstdint>
 
 #ifdef _WIN32
     #include <winsock2.h>

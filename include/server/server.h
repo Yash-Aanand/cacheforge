@@ -4,6 +4,13 @@
 #include <cstdint>
 #include <string>
 
+#ifdef _WIN32
+    #include <winsock2.h>
+    using socket_t = SOCKET;
+#else
+    using socket_t = int;
+#endif
+
 namespace cacheforge {
 
 class Server {
@@ -22,10 +29,10 @@ public:
     void stop();
 
 private:
-    void handleClient(int client_fd);
+    void handleClient(socket_t client_fd);
 
     uint16_t port_;
-    int server_fd_;
+    socket_t server_fd_;
     bool running_;
 };
 

@@ -7,9 +7,7 @@
 #include <stdexcept>
 
 #ifdef _WIN32
-    #include <winsock2.h>
     #include <ws2tcpip.h>
-    using socket_t = SOCKET;
     #define CLOSE_SOCKET closesocket
     #define SOCKET_ERROR_CODE WSAGetLastError()
 #else
@@ -17,8 +15,7 @@
     #include <netinet/in.h>
     #include <unistd.h>
     #include <arpa/inet.h>
-    using socket_t = int;
-    #define INVALID_SOCKET -1
+    constexpr socket_t INVALID_SOCKET = -1;
     #define CLOSE_SOCKET close
     #define SOCKET_ERROR_CODE errno
 #endif
@@ -125,7 +122,7 @@ void Server::run() {
         inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
         std::cout << "Client connected from " << client_ip << "\n";
 
-        handleClient(static_cast<int>(client_fd));
+        handleClient(client_fd);
 
         std::cout << "Client disconnected\n";
     }
@@ -135,7 +132,7 @@ void Server::stop() {
     running_ = false;
 }
 
-void Server::handleClient(int client_fd) {
+void Server::handleClient(socket_t client_fd) {
     char buffer[BUFFER_SIZE];
 
     while (running_) {
