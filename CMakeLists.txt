@@ -32,6 +32,9 @@ if(ENABLE_ASAN)
     add_link_options(-fsanitize=address)
 endif()
 
+# Threading
+find_package(Threads REQUIRED)
+
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
@@ -54,6 +57,12 @@ add_executable(cache_server
 add_executable(cache_cli
     tools/cache_cli.cpp
 )
+
+# Benchmark tool (Linux only — connects to the epoll server)
+add_executable(cache_bench
+    tools/cache_bench.cpp
+)
+target_link_libraries(cache_bench Threads::Threads)
 
 # Platform-specific settings
 # Server requires Linux (epoll), CLI supports both Windows and Linux
