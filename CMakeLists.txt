@@ -13,11 +13,23 @@ endif()
 # Compiler warnings
 add_compile_options(-Wall -Wextra -Wpedantic)
 
+# Static linking for Windows/MinGW to avoid DLL version mismatches
+if(MINGW)
+    add_link_options(-static-libgcc -static-libstdc++)
+endif()
+
 # ThreadSanitizer option
 option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
 if(ENABLE_TSAN)
     add_compile_options(-fsanitize=thread)
     add_link_options(-fsanitize=thread)
+endif()
+
+# AddressSanitizer option
+option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
+if(ENABLE_ASAN)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
 endif()
 
 # Include directories
@@ -34,6 +46,8 @@ add_executable(cache_server
     src/protocol/response.cpp
     src/protocol/dispatcher.cpp
     src/storage/sharded_storage.cpp
+    src/storage/aof_writer.cpp
+    src/storage/aof_replay.cpp
 )
 
 # CLI client executable
@@ -70,7 +84,26 @@ add_executable(test_lru
     src/storage/sharded_storage.cpp
 )
 
+add_executable(test_aof
+    tests/test_aof.cpp
+    src/storage/aof_writer.cpp
+    src/storage/aof_replay.cpp
+    src/storage/sharded_storage.cpp
+    src/protocol/parser.cpp
+)
+
 add_test(NAME parser_tests COMMAND test_parser)
 add_test(NAME sharded_storage_tests COMMAND test_sharded_storage)
 add_test(NAME ttl_tests COMMAND test_ttl)
 add_test(NAME lru_tests COMMAND test_lru)
+add_executable(test_stats
+    tests/test_stats.cpp
+    src/protocol/dispatcher.cpp
+    src/protocol/parser.cpp
+    src/protocol/response.cpp
+    src/storage/sharded_storage.cpp
+    src/storage/aof_writer.cpp
+)
+
+add_test(NAME aof_tests COMMAND test_aof)
+add_test(NAME stats_tests COMMAND test_stats)

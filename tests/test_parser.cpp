@@ -110,6 +110,20 @@ void test_ttl() {
     assert(cmd.args.empty());
 }
 
+void test_stats() {
+    Command cmd = parseCommand("STATS");
+    assert(cmd.type == CommandType::STATS);
+    assert(cmd.args.empty());
+
+    cmd = parseCommand("stats");
+    assert(cmd.type == CommandType::STATS);
+    assert(cmd.args.empty());
+
+    cmd = parseCommand("  STATS  \r\n");
+    assert(cmd.type == CommandType::STATS);
+    assert(cmd.args.empty());
+}
+
 int main() {
     test_ping();
     std::cout << "test_ping passed\n";
@@ -134,6 +148,9 @@ int main() {
 
     test_ttl();
     std::cout << "test_ttl passed\n";
+
+    test_stats();
+    std::cout << "test_stats passed\n";
 
     std::cout << "\nAll parser tests passed!\n";
     return 0;

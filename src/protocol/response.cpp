@@ -11,7 +11,12 @@ std::string okResponse() {
 }
 
 std::string valueResponse(const std::string& value) {
-    return "$" + value + "\n";
+    std::string result;
+    result.reserve(1 + value.size() + 1);
+    result.append("$");
+    result.append(value);
+    result.append("\n");
+    return result;
 }
 
 std::string nilResponse() {
@@ -19,11 +24,22 @@ std::string nilResponse() {
 }
 
 std::string integerResponse(int value) {
-    return ":" + std::to_string(value) + "\n";
+    std::string num = std::to_string(value);
+    std::string result;
+    result.reserve(1 + num.size() + 1);
+    result.append(":");
+    result.append(num);
+    result.append("\n");
+    return result;
 }
 
 std::string errorResponse(const std::string& message) {
-    return "-ERR " + message + "\n";
+    std::string result;
+    result.reserve(5 + message.size() + 1);
+    result.append("-ERR ");
+    result.append(message);
+    result.append("\n");
+    return result;
 }
 
 std::string formatResponse(const Command& cmd) {

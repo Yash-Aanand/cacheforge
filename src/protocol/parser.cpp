@@ -6,11 +6,9 @@ namespace cacheforge {
 
 namespace {
     std::string toUpper(std::string_view str) {
-        std::string result;
-        result.reserve(str.size());
-        for (char c : str) {
-            result += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-        }
+        std::string result(str);
+        std::transform(result.begin(), result.end(), result.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
         return result;
     }
 
@@ -26,6 +24,7 @@ namespace {
             if (i >= input.size()) break;
 
             std::string token;
+            token.reserve(32);
             if (input[i] == '"') {
                 // Quoted string
                 ++i;
@@ -83,30 +82,32 @@ Command parseCommand(std::string_view input) {
     } else if (cmdName == "SET") {
         cmd.type = CommandType::SET;
         if (tokens.size() >= 3) {
-            cmd.args.push_back(tokens[1]);  // key
-            cmd.args.push_back(tokens[2]);  // value
+            cmd.args.push_back(std::move(tokens[1]));  // key
+            cmd.args.push_back(std::move(tokens[2]));  // value
         }
     } else if (cmdName == "GET") {
         cmd.type = CommandType::GET;
         if (tokens.size() >= 2) {
-            cmd.args.push_back(tokens[1]);  // key
+            cmd.args.push_back(std::move(tokens[1]));  // key
         }
     } else if (cmdName == "DEL") {
         cmd.type = CommandType::DEL;
         if (tokens.size() >= 2) {
-            cmd.args.push_back(tokens[1]);  // key
+            cmd.args.push_back(std::move(tokens[1]));  // key
         }
     } else if (cmdName == "EXPIRE") {
         cmd.type = CommandType::EXPIRE;
         if (tokens.size() >= 3) {
-            cmd.args.push_back(tokens[1]);  // key
-            cmd.args.push_back(tokens[2]);  // seconds
+            cmd.args.push_back(std::move(tokens[1]));  // key
+            cmd.args.push_back(std::move(tokens[2]));  // seconds
         }
     } else if (cmdName == "TTL") {
         cmd.type = CommandType::TTL;
         if (tokens.size() >= 2) {
-            cmd.args.push_back(tokens[1]);  // key
+            cmd.args.push_back(std::move(tokens[1]));  // key
         }
+    } else if (cmdName == "STATS") {
+        cmd.type = CommandType::STATS;
     }
 
     return cmd;

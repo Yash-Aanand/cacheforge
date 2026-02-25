@@ -5,6 +5,8 @@
 #include "protocol/parser.h"
 #include "protocol/dispatcher.h"
 #include "storage/sharded_storage.h"
+#include "storage/aof_writer.h"
+#include "storage/aof_replay.h"
 
 #include <iostream>
 #include <cstring>
@@ -31,15 +33,35 @@ namespace {
     }
 }
 
-Server::Server(uint16_t port, size_t num_threads)
+Server::Server(uint16_t port, size_t num_threads, bool aof_enabled, const std::string& aof_path)
     : port_(port)
     , server_fd_(-1)
     , running_(false)
     , storage_(std::make_unique<ShardedStorage>())
-    , dispatcher_(std::make_unique<Dispatcher>(*storage_))
-    , event_loop_(std::make_unique<EventLoop>())
-    , thread_pool_(std::make_unique<ThreadPool>(num_threads == 0 ? std::thread::hardware_concurrency() : num_threads))
+    , aof_enabled_(aof_enabled)
+    , aof_path_(aof_path)
 {
+    // Initialize AOF if enabled
+    if (aof_enabled_) {
+        aof_writer_ = std::make_unique<AOFWriter>(aof_path_);
+        aof_writer_->setEnabled(false);  // Disable during replay
+
+        AOFReplay replay(*storage_);
+        auto stats = replay.replay(aof_path_);
+        std::cout << "AOF: " << stats.commands_replayed << " commands replayed";
+        if (stats.errors > 0) {
+            std::cout << " (" << stats.errors << " errors)";
+        }
+        std::cout << "\n";
+
+        aof_writer_->setEnabled(true);
+        aof_writer_->start();
+    }
+
+    // Create dispatcher with optional AOF writer
+    dispatcher_ = std::make_unique<Dispatcher>(*storage_, aof_writer_.get());
+    event_loop_ = std::make_unique<EventLoop>();
+    thread_pool_ = std::make_unique<ThreadPool>(num_threads == 0 ? std::thread::hardware_concurrency() : num_threads);
     // Create socket
     server_fd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd_ < 0) {
@@ -82,6 +104,11 @@ Server::Server(uint16_t port, size_t num_threads)
 
 Server::~Server() {
     stop();
+
+    // Stop AOF writer to ensure all pending writes are flushed
+    if (aof_writer_) {
+        aof_writer_->stop();
+    }
 
     // Clear connections before destroying thread pool to ensure all tasks complete
     // shared_ptr ensures connections survive until tasks finish

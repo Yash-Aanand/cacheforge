@@ -14,6 +14,7 @@ enum class CommandType {
     DEL,
     EXPIRE,
     TTL,
+    STATS,
     UNKNOWN
 };
 
