@@ -42,20 +42,4 @@ std::string errorResponse(const std::string& message) {
     return result;
 }
 
-std::string formatResponse(const Command& cmd) {
-    switch (cmd.type) {
-        case CommandType::PING:
-            return pongResponse();
-        case CommandType::SET:
-            return errorResponse("wrong number of arguments for 'set' command");
-        case CommandType::GET:
-            return errorResponse("wrong number of arguments for 'get' command");
-        case CommandType::DEL:
-            return errorResponse("wrong number of arguments for 'del' command");
-        case CommandType::UNKNOWN:
-        default:
-            return errorResponse("unknown command");
-    }
-}
-
 } // namespace cacheforge

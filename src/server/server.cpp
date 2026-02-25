@@ -110,8 +110,12 @@ Server::~Server() {
         aof_writer_->stop();
     }
 
-    // Clear connections before destroying thread pool to ensure all tasks complete
-    // shared_ptr ensures connections survive until tasks finish
+    // Gracefully close all client connections (send TCP FIN instead of RST)
+    for (auto& [fd, conn] : connections_) {
+        event_loop_->removeFd(fd);
+        shutdown(fd, SHUT_RDWR);
+        close(fd);
+    }
     connections_.clear();
 
     if (server_fd_ >= 0) {
@@ -158,6 +162,7 @@ void Server::run() {
 
 void Server::stop() {
     running_ = false;
+    std::cout << "Shutting down...\n";
 }
 
 void Server::acceptConnection() {

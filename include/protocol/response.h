@@ -2,12 +2,8 @@
 #define CACHEFORGE_RESPONSE_H
 
 #include <string>
-#include "protocol/parser.h"
 
 namespace cacheforge {
-
-// Format a response for the given command
-std::string formatResponse(const Command& cmd);
 
 // Standard responses
 std::string pongResponse();

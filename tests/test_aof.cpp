@@ -22,7 +22,7 @@ std::string tempAofPath() {
 
 // Helper to clean up test files
 void cleanup(const std::string& path) {
-    std::remove(path.c_str());
+    (void)std::remove(path.c_str());
 }
 
 void test_write_and_replay_100_keys() {

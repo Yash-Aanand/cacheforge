@@ -116,3 +116,8 @@ add_executable(test_stats
 
 add_test(NAME aof_tests COMMAND test_aof)
 add_test(NAME stats_tests COMMAND test_stats)
+
+# Ensure asserts are active in test builds (avoid unused-variable warnings with NDEBUG)
+foreach(test_target test_parser test_sharded_storage test_ttl test_lru test_aof test_stats)
+    target_compile_options(${test_target} PRIVATE -UNDEBUG)
+endforeach()

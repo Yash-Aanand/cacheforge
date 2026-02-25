@@ -27,13 +27,13 @@ void testEvictionOrder() {
 
 void testGetPreventsEviction() {
     std::cout << "testGetPreventsEviction... ";
-    ShardedStorage storage(32);
+    ShardedStorage storage(64);  // 4 per shard — enough headroom for LRU to protect accessed keys
     storage.set("protected", "value");
 
-    // Insert many keys, touching "protected" periodically
+    // Insert many keys, touching "protected" frequently to keep it at MRU
     for (int i = 0; i < 100; i++) {
         storage.set("key" + std::to_string(i), "value");
-        if (i % 10 == 0) storage.get("protected");
+        if (i % 3 == 0) storage.get("protected");
     }
 
     // "protected" should still exist

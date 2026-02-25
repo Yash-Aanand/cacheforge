@@ -57,8 +57,12 @@ void ShardedStorage::set(const std::string& key, const std::string& value) {
 void ShardedStorage::setWithTTL(const std::string& key, const std::string& value, int64_t seconds) {
     Shard& shard = getShard(key);
     std::lock_guard<std::mutex> lock(shard.mutex);
-    auto expires_at = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
-    insertOrUpdate(shard, key, value, expires_at);
+    if (seconds < 0) {
+        insertOrUpdate(shard, key, value, std::nullopt);
+    } else {
+        auto expires_at = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+        insertOrUpdate(shard, key, value, expires_at);
+    }
 }
 
 std::optional<std::string> ShardedStorage::get(const std::string& key) {
@@ -107,6 +111,10 @@ size_t ShardedStorage::size() const {
 }
 
 bool ShardedStorage::expire(const std::string& key, int64_t seconds) {
+    if (seconds < 0) {
+        return false;
+    }
+
     Shard& shard = getShard(key);
     std::lock_guard<std::mutex> lock(shard.mutex);
 

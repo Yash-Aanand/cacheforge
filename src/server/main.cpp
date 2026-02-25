@@ -1,8 +1,8 @@
 #include "server/server.h"
 #include <iostream>
 #include <csignal>
-#include <cstdlib>
 #include <cstring>
+#include <stdexcept>
 #include <string>
 
 namespace {
@@ -35,11 +35,31 @@ int main(int argc, char* argv[]) {
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-p") == 0 || std::strcmp(argv[i], "--port") == 0) {
             if (i + 1 < argc) {
-                port = static_cast<uint16_t>(std::atoi(argv[++i]));
+                try {
+                    int p = std::stoi(argv[++i]);
+                    if (p < 1 || p > 65535) {
+                        std::cerr << "Error: port must be between 1 and 65535\n";
+                        return 1;
+                    }
+                    port = static_cast<uint16_t>(p);
+                } catch (const std::exception&) {
+                    std::cerr << "Error: invalid port number\n";
+                    return 1;
+                }
             }
         } else if (std::strcmp(argv[i], "-t") == 0 || std::strcmp(argv[i], "--threads") == 0) {
             if (i + 1 < argc) {
-                num_threads = static_cast<size_t>(std::atoi(argv[++i]));
+                try {
+                    int t = std::stoi(argv[++i]);
+                    if (t <= 0) {
+                        std::cerr << "Error: thread count must be greater than 0\n";
+                        return 1;
+                    }
+                    num_threads = static_cast<size_t>(t);
+                } catch (const std::exception&) {
+                    std::cerr << "Error: invalid thread count\n";
+                    return 1;
+                }
             }
         } else if (std::strcmp(argv[i], "--aof-enabled") == 0) {
             if (i + 1 < argc) {
@@ -55,9 +75,29 @@ int main(int argc, char* argv[]) {
             return 0;
         } else if (argv[i][0] != '-') {
             // Legacy positional argument support: [port] [threads]
-            port = static_cast<uint16_t>(std::atoi(argv[i]));
+            try {
+                int p = std::stoi(argv[i]);
+                if (p < 1 || p > 65535) {
+                    std::cerr << "Error: port must be between 1 and 65535\n";
+                    return 1;
+                }
+                port = static_cast<uint16_t>(p);
+            } catch (const std::exception&) {
+                std::cerr << "Error: invalid port number\n";
+                return 1;
+            }
             if (i + 1 < argc && argv[i + 1][0] != '-') {
-                num_threads = static_cast<size_t>(std::atoi(argv[++i]));
+                try {
+                    int t = std::stoi(argv[++i]);
+                    if (t <= 0) {
+                        std::cerr << "Error: thread count must be greater than 0\n";
+                        return 1;
+                    }
+                    num_threads = static_cast<size_t>(t);
+                } catch (const std::exception&) {
+                    std::cerr << "Error: invalid thread count\n";
+                    return 1;
+                }
             }
         }
     }
